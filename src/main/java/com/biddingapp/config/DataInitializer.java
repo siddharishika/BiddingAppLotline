@@ -53,6 +53,7 @@ public class DataInitializer {
             seedCollectionsIfMissing(users, auctions, bids, collections);
             auctionService.closeExpired(Instant.now());
             seedPaymentsIfMissing(users, auctions, payments);
+            // DemoCatalogueMaintainer (ApplicationRunner) then re-aligns windows to "today".
         };
     }
 
