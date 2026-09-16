@@ -1,0 +1,43 @@
+target/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+*.log
+.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+!**/src/**/maven-wrapper.jar
+
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+.venv/
+scripts/.venv/
+data/
+config/application-aiven.properties
+!config/application-aiven.properties.example
+
+# Local secrets / env (never commit)
+.env
+.env.*
+!.env.example
+
+# Cursor local-only (same treatment as .env — not part of the app)
+# Real files live at ~/Desktop/Cursor/BiddingApp/.cursor; repo has a symlink.
+.cursor
+.cursor/
+.cursorignore
+.cursorrules
+.cursorindexingignore
+AGENTS.md
+**/.cursor/
+**/.cursorrules
+**/AGENTS.md
