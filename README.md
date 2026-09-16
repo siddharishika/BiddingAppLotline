@@ -100,7 +100,7 @@ Consignor actions are **status-driven** so demo data and production listings sha
 
 
 
-## Features 
+## Features
 
 
 
@@ -195,7 +195,7 @@ Tests run on in-memory H2 (PostgreSQL mode) so CI does not need a live Postgres 
 
 
 
-## Demo walkthrough (for interviews)
+## Demo walkthrough 
 
 
 | Account  | Password      | Suggested story                                                 |
@@ -229,7 +229,7 @@ BiddingApp/
 
 
 
-## Run (short)
+## Run
 
 **Local demo (H2)**
 
