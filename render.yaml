@@ -20,3 +20,9 @@ services:
         sync: false
       - key: APP_CORS_ORIGINS
         sync: false
+      - key: HIKARI_MAX_POOL
+        value: "3"
+      - key: HIKARI_MIN_IDLE
+        value: "1"
+      - key: SPRING_JPA_DATABASE_PLATFORM
+        value: org.hibernate.dialect.PostgreSQLDialect

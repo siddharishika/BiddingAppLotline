@@ -14,6 +14,10 @@ WORKDIR /app
 COPY --from=build /app/target/lotline-1.0.0.jar app.jar
 
 ENV JAVA_OPTS=""
+# Stay well under Aiven's ~20 connection limit (local + Render + console).
+ENV HIKARI_MAX_POOL=3
+ENV HIKARI_MIN_IDLE=1
+ENV SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
 EXPOSE 8080
 
 # Render sets PORT; Spring must bind to it.
