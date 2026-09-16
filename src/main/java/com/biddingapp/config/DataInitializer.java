@@ -18,6 +18,7 @@ import com.biddingapp.service.CollectionService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
@@ -29,6 +30,7 @@ import java.util.List;
 public class DataInitializer {
 
     @Bean
+    @Order(1)
     CommandLineRunner seedCatalog(UserRepository users,
                                   AuctionItemRepository auctions,
                                   BidRepository bids,
@@ -109,6 +111,7 @@ public class DataInitializer {
         place(bids, watch, mara, "4300.00", now.minus(Duration.ofHours(5)));
         place(bids, watch, julian, "4500.00", now.minus(Duration.ofHours(4)));
         place(bids, watch, mara, "4700.00", now.minus(Duration.ofHours(3)));
+        watch = reload(auctions, watch.getId());
         watch.setCurrentPrice(new BigDecimal("4700.00"));
         watch.setWinner(mara);
         watch.setStatus(AuctionStatus.SOLD);
@@ -117,6 +120,7 @@ public class DataInitializer {
 
         place(bids, book, julian, "900.00", now.minus(Duration.ofHours(4)));
         place(bids, book, mara, "980.00", now.minus(Duration.ofHours(2)));
+        book = reload(auctions, book.getId());
         book.setCurrentPrice(new BigDecimal("980.00"));
         book.setWinner(mara);
         book.setStatus(AuctionStatus.SOLD);
@@ -124,12 +128,14 @@ public class DataInitializer {
         savePayment(payments, book, mara, PaymentStatus.FAILED, "0002", null, "Card declined by issuer", now.minus(Duration.ofMinutes(50)));
 
         place(bids, painting, julian, "1650.00", now.minus(Duration.ofHours(1)));
+        painting = reload(auctions, painting.getId());
         painting.setCurrentPrice(new BigDecimal("1650.00"));
         painting.setWinner(julian);
         painting.setStatus(AuctionStatus.SOLD);
         painting = auctions.save(painting);
 
         place(bids, vinyl, seller, "360.00", now.minus(Duration.ofMinutes(3)));
+        vinyl = reload(auctions, vinyl.getId());
         vinyl.setCurrentPrice(new BigDecimal("360.00"));
         auctions.save(vinyl);
     }
@@ -480,6 +486,11 @@ public class DataInitializer {
         item.setStatus(status);
         item.setCollection(collection);
         return item;
+    }
+
+    private static AuctionItem reload(AuctionItemRepository auctions, Long id) {
+        return auctions.findById(id)
+                .orElseThrow(() -> new IllegalStateException("Seed lot missing after insert: id=" + id));
     }
 
     private static void place(BidRepository bids, AuctionItem auction, User bidder, String amount, Instant when) {

@@ -1,11 +1,17 @@
 package com.biddingapp.service;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
+/**
+ * Disabled under {@code seed} so DataInitializer can finish without racing
+ * closeExpired on lots that still carry a past endTime while status is updated.
+ */
 @Component
+@Profile("!seed")
 public class AuctionScheduler {
 
     private final AuctionService auctionService;

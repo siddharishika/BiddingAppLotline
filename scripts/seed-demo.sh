@@ -1,59 +1,50 @@
 #!/usr/bin/env bash
-# Rebuild the local Lotline demo catalogue from a clean H2 file database.
+# One-time (or occasional) Lotline demo seed — Aiven PostgreSQL only.
 #
-# WARNING: This deletes data/lotline* and recreates users, lots, bids, and payments
-# from DataInitializer. Real charges you made against the old file DB cannot be recovered.
+# WARNING: Wipes users, lots, bids, payments, and collections on Aiven, then
+# reseeds via Spring DataInitializer (profile "seed"). Irreversible for cloud data.
 #
-# What this seeds (relative to "now" at seed time — stored in the database, not the browser):
-#   Users:  mara, julian, seller, admin  /  password123
-#   Sold lots with winners, including payment rows (SUCCEEDED + FAILED) for receipts
-#   Unpaid SOLD wins for Awaiting payment
-#   Live / upcoming collections and consignments
-#
-# Consignor/payment rules are status-based only (not title/user hardcoding in product logic).
-#
-# Usage (from repo root or scripts/):
+# Usage (from repo root):
 #   ./scripts/seed-demo.sh
-#
-# After a successful seed, start the API as usual (without the seed profile).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Never write __pycache__ / .pyc when running helper Python.
+export PYTHONDONTWRITEBYTECODE=1
+
 JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}"
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
-DATA_DIR="$ROOT/data"
-mkdir -p "$DATA_DIR"
-
-echo "==> Stopping anything on :8080 (if present)"
-if command -v lsof >/dev/null 2>&1; then
-  PIDS="$(lsof -ti tcp:8080 || true)"
-  if [[ -n "${PIDS}" ]]; then
-    kill ${PIDS} || true
-    sleep 1
-  fi
+PROPS="$ROOT/config/application-aiven.properties"
+if [[ ! -f "$PROPS" ]]; then
+  echo "Missing $PROPS"
+  echo "Create it with spring.datasource.url / username / password (gitignored)."
+  exit 1
 fi
 
-echo "==> Removing local H2 files under data/"
-rm -f \
-  "$DATA_DIR/lotline.mv.db" \
-  "$DATA_DIR/lotline.trace.db" \
-  "$DATA_DIR/lotline.lock.db" \
-  "$DATA_DIR/lotline.mv.db.tmp" \
-  2>/dev/null || true
+PY="$ROOT/scripts/.venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+  echo "==> Creating scripts/.venv and installing psycopg2-binary"
+  python3 -m venv "$ROOT/scripts/.venv"
+  "$ROOT/scripts/.venv/bin/pip" install -q psycopg2-binary
+  PY="$ROOT/scripts/.venv/bin/python"
+fi
 
-H2_URL='jdbc:h2:file:./data/lotline;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1'
+echo "==> Checking Aiven connectivity and wiping demo tables"
+"$PY" -B "$ROOT/scripts/show-db.py" --wipe
 
-echo "==> Seeding via Spring Boot profile 'seed' (exits when DataInitializer finishes)"
+echo "==> Seeding Aiven via Spring Boot profiles seed,aiven (exits when done)"
 mvn -q spring-boot:run \
-  -Dspring-boot.run.profiles=seed \
-  -Dspring-boot.run.useTestClasspath=true \
-  -Dspring-boot.run.arguments="--spring.datasource.url=${H2_URL} --spring.datasource.driver-class-name=org.h2.Driver --spring.datasource.username=sa --spring.datasource.password= --spring.jpa.database-platform=org.hibernate.dialect.H2Dialect --spring.main.web-application-type=servlet"
+  -Dspring-boot.run.profiles=seed,aiven \
+  -Dspring-boot.run.arguments="--spring.main.web-application-type=servlet --spring.task.scheduling.enabled=false"
 
-echo "==> Seed complete. Demo DB is at data/lotline*"
-echo "    Start the API without --spring.profiles.active=seed to use it."
+echo "==> Verifying row counts on Aiven"
+"$PY" -B "$ROOT/scripts/show-db.py" | head -n 40
+
+echo "==> Seed complete on Aiven."
+echo "    Start API: mvn spring-boot:run"
 echo "    Demo login: mara / julian / seller / admin  ·  password123"

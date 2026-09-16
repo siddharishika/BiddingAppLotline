@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Apply scripts/schema.sql to Aiven PostgreSQL.
+"""Apply scripts/schema*.sql to Aiven PostgreSQL.
 
 Reads config/application-aiven.properties. Does not print the password.
+Does not write __pycache__ / .pyc.
 Safe to run more than once.
 """
 
@@ -11,6 +12,8 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 PROPS = ROOT / "config" / "application-aiven.properties"
 SCHEMA_FILES = [
@@ -18,11 +21,16 @@ SCHEMA_FILES = [
     ROOT / "scripts" / "schema-collections.sql",
 ]
 
+INACTIVE_HINT = (
+    "Aiven PostgreSQL looks inactive or unreachable.\n"
+    "  → Open https://console.aiven.io and power on / start the service, then retry."
+)
 
-def load_props(path: Path) -> dict[str, str]:
+
+def load_props(path: Path = PROPS) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
-        sys.exit(f"Missing {path}. Copy config/application-aiven.properties.example and fill in credentials.")
+        sys.exit(f"Missing {path}.")
     for raw in path.read_text().splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -48,17 +56,14 @@ def jdbc_to_dsn(url: str, username: str, password: str) -> dict[str, str]:
     }
 
 
-def main() -> None:
+def connect():
     try:
         import psycopg2
+        from psycopg2 import OperationalError
     except ImportError:
         sys.exit("Install the driver first: python3 -m pip install psycopg2-binary")
 
-    missing = [path for path in SCHEMA_FILES if not path.exists()]
-    if missing:
-        sys.exit("Missing " + ", ".join(str(path) for path in missing))
-
-    props = load_props(PROPS)
+    props = load_props()
     dsn = jdbc_to_dsn(
         props.get("spring.datasource.url", ""),
         props.get("spring.datasource.username", ""),
@@ -66,9 +71,20 @@ def main() -> None:
     )
     if not dsn["host"] or "YOUR_AIVEN" in dsn["host"]:
         sys.exit("Fill host/port/password in config/application-aiven.properties first.")
+    try:
+        conn = psycopg2.connect(**dsn, connect_timeout=15)
+        conn.autocommit = True
+        return conn, dsn
+    except OperationalError as exc:
+        sys.exit(f"{INACTIVE_HINT}\n\nDriver detail: {exc}")
 
-    conn = psycopg2.connect(**dsn)
-    conn.autocommit = True
+
+def main() -> None:
+    missing = [path for path in SCHEMA_FILES if not path.exists()]
+    if missing:
+        sys.exit("Missing " + ", ".join(str(path) for path in missing))
+
+    conn, dsn = connect()
     applied = []
     try:
         with conn.cursor() as cur:
@@ -88,7 +104,7 @@ def main() -> None:
     finally:
         conn.close()
 
-    print(f"Applied {', '.join(applied)} to {dsn['dbname']}")
+    print(f"Applied {', '.join(applied)} to {dsn['dbname']} @ {dsn['host']}")
     print("Query indexes:")
     for name in indexes:
         print(f"  {name}")

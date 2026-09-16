@@ -21,6 +21,8 @@ frontend/.vite/
 *.local
 .venv/
 scripts/.venv/
+**/__pycache__/
+*.py[cod]
 data/
 config/application-aiven.properties
 !config/application-aiven.properties.example
@@ -31,7 +33,8 @@ config/application-aiven.properties
 !.env.example
 
 # Cursor local-only (same treatment as .env — not part of the app)
-# Real files live at ~/Desktop/Cursor/BiddingApp/.cursor; repo has a symlink.
+# Real files live at ~/Desktop/Cursor/BiddingApp/ (see README-CURSOR.txt there).
+# Repo may symlink .cursor → that folder.
 .cursor
 .cursor/
 .cursorignore
@@ -41,3 +44,7 @@ AGENTS.md
 **/.cursor/
 **/.cursorrules
 **/AGENTS.md
+
+# Agent helpers — canonical copy under ~/Desktop/Cursor/BiddingApp/scripts/
+scripts/precommit-check.sh
+

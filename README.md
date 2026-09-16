@@ -23,15 +23,15 @@ Traditional “toy auction” demos stop at place-a-bid. Lotline covers the full
 ## Tech stack
 
 
-| Layer       | Choice                                                           | Why it matters in conversation                            |
-| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------- |
-| Frontend    | React 18, Vite, React Router                                     | SPA with auth-gated routes; Vite proxies `/api` and `/ws` |
-| Backend     | Spring Boot 3.4, Java 17                                         | Layered REST + services; transactional checkout           |
-| Persistence | Spring Data JPA + PostgreSQL (Aiven/Docker) or H2 for local demo | Same domain model against cloud or file DB                |
-| Realtime    | Spring WebSocket, STOMP, SockJS                                  | Bid events on `/topic/auctions/{id}` without polling      |
-| Security    | Spring Security, BCrypt, session cookie, CSRF                    | Public browse; auth for bid, consign, pay                 |
-| Payments    | Pluggable `PaymentGateway` (Stripe-style)                        | Success/decline paths; PAN never stored                   |
-| Tests       | JUnit 5, Mockito, MockMvc                                        | Bid rules, close/forfeit, payments, security              |
+| Layer       | Choice                                                    | Why it matters in conversation                            |
+| ----------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| Frontend    | React 18, Vite, React Router                              | SPA with auth-gated routes; Vite proxies `/api` and `/ws` |
+| Backend     | Spring Boot 3.4, Java 17                                  | Layered REST + services; transactional checkout           |
+| Persistence | Spring Data JPA + PostgreSQL on [Aiven](https://aiven.io) | Shared cloud catalogue for demos and production           |
+| Realtime    | Spring WebSocket, STOMP, SockJS                           | Bid events on `/topic/auctions/{id}` without polling      |
+| Security    | Spring Security, BCrypt, session cookie, CSRF             | Public browse; auth for bid, consign, pay                 |
+| Payments    | Pluggable `PaymentGateway` (Stripe-style)                 | Success/decline paths; PAN never stored                   |
+| Tests       | JUnit 5, Mockito, MockMvc                                 | Bid rules, close/forfeit, payments, security              |
 
 
 ---
@@ -49,7 +49,7 @@ Spring Boot
     ├── Services (Bid, Auction, Collection, Payment)
     ├── Scheduler (close expired lots; forfeit unpaid after 7 days)
     ├── EventPublisher → STOMP topics
-    └── JPA repositories → PostgreSQL or H2
+    └── JPA repositories → Aiven PostgreSQL
 ```
 
 **Separation of concerns**
@@ -168,7 +168,7 @@ Consignor actions are **status-driven** so demo data and production listings sha
 3. **Durable failed payments** — declined cards still create `Payment` rows so the consignor/bidder UX and audit trail stay honest.
 4. **Forfeit without erasing history** — unpaid settlement returns inventory to the issuer without deleting receipt data.
 5. **Gateway abstraction** — `PaymentGateway` keeps Stripe-like charge semantics swappable for a real provider later.
-6. **Dual persistence story** — same app against Aiven PostgreSQL for shared demos, or file H2 via `seed-demo.sh` for offline interview walkthroughs.
+6. **Cloud Postgres as source of truth** — demo and runtime data live on Aiven; reseeding is intentional and scripted (`scripts/seed-demo.sh`).
 
 ---
 
@@ -189,7 +189,7 @@ Coverage includes:
 - Consignor withdraw / reopen / delete
 - Security: public catalogue vs auth-gated bidding
 
-Tests run on in-memory H2 (PostgreSQL mode) so CI does not need a live Postgres instance.
+Tests use an isolated in-memory database so CI does not need a live Aiven instance.
 
 ---
 
@@ -219,10 +219,12 @@ BiddingApp/
 ├── frontend/                 React + Vite UI
 ├── src/main/java/            API, domain, services, WebSocket, security
 ├── src/test/                 JUnit / Mockito / MockMvc
-├── scripts/seed-demo.sh      Local H2 catalogue + payment seed
+├── scripts/seed-demo.sh      Wipe + reseed Aiven demo catalogue (occasional)
+├── scripts/show-db.py        Inspect Aiven tables (optional --wipe)
+├── scripts/migrate-db.py     Apply schema SQL on Aiven if needed
 ├── config/                   Aiven credentials (gitignored)
-├── data/                     H2 files when using local demo (gitignored)
-└── docker-compose.yml        Optional Postgres 16
+├── Dockerfile / render.yaml  Production deploy on Render
+└── docker-compose.yml        Optional local Postgres 16 (dev only)
 ```
 
 ---
@@ -231,22 +233,31 @@ BiddingApp/
 
 ## Run
 
-**Local demo (H2)**
+**Prerequisites:** JDK 17, Maven, Node.js, an Aiven PostgreSQL service that is **Running**, and `config/application-aiven.properties` (gitignored) with JDBC URL, username, and password (`sslmode=require`).
+
+**Seed / refresh the cloud demo catalogue** (wipes Aiven demo tables, then reseeds):
 
 ```bash
-./scripts/seed-demo.sh          # wipes data/lotline* and reseeds
-# start API with H2 file URL (see script output), then:
+./scripts/seed-demo.sh
+```
+
+**Inspect Aiven:**
+
+```bash
+python3 -B scripts/show-db.py
+```
+
+(Use a venv with `psycopg2-binary` if needed; `seed-demo.sh` creates `scripts/.venv` once.)
+
+**Start the app** (API uses the `aiven` profile by default via Maven):
+
+```bash
+mvn spring-boot:run
 cd frontend && npm install && npm run dev
 ```
 
 UI: [http://localhost:5173](http://localhost:5173) · API: [http://localhost:8080/api](http://localhost:8080/api)
 
-**Cloud / shared DB (Aiven PostgreSQL)**
+If the Aiven service is powered off or unreachable, start it in the [Aiven console](https://console.aiven.io) and confirm Allowed IPs include your machine (or `0.0.0.0/0` for demos).
 
-1. Create free Postgres on [Aiven](https://console.aiven.io).
-2. Put JDBC URL + user/password in `config/application-aiven.properties` (gitignored).
-3. `mvn spring-boot:run` · then `cd frontend && npm run dev`.
-
-Optional: `docker compose up -d` for local Postgres (`lotline` / `lotline` on port 5432).
-
-`seed-demo.sh` deletes the local file DB; use it only when you intentionally want a fresh demo catalogue.
+Optional: `docker compose up -d` for a throwaway local Postgres — the default path is Aiven.
