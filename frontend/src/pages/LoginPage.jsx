@@ -8,8 +8,8 @@ export default function LoginPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const [username, setUsername] = useState("mara");
-  const [password, setPassword] = useState("password123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const from = location.state?.from || "/auctions";
 
@@ -33,7 +33,7 @@ export default function LoginPage() {
         <p className="eyebrow">Members only</p>
         <h1>Sign in to bid</h1>
         <p className="lede">
-          Only registered accounts can place bids or list lots. Demo password for seeded users: <code>password123</code>
+          Only registered accounts can place bids or list lots.
         </p>
         <form className="stack" onSubmit={onSubmit}>
           <label>Username
@@ -47,7 +47,6 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="muted">No paddle yet? <Link to="/register">Create an account</Link></p>
-        <p className="hint">Seeded bidders: <code>mara</code>, <code>julian</code>, <code>seller</code>, <code>admin</code></p>
       </section>
     </main>
   );

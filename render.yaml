@@ -1,0 +1,20 @@
+# Lotline on Render — one Web Service (UI + API). Postgres stays on Aiven.
+# Secrets are set in the Render dashboard (sync: false), not committed here.
+services:
+  - type: web
+    name: lotline
+    runtime: java
+    plan: free
+    region: oregon
+    buildCommand: mvn -Pwith-frontend -DskipTests package
+    startCommand: java -Dserver.port=$PORT -jar target/lotline-1.0.0.jar
+    healthCheckPath: /api/categories
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: APP_CORS_ORIGINS
+        sync: false
