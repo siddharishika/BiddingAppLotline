@@ -47,4 +47,8 @@ AGENTS.md
 
 # Agent helpers — canonical copy under ~/Desktop/Cursor/BiddingApp/scripts/
 scripts/precommit-check.sh
+scripts/run-tests.sh
+
+# Agent-local tests — canonical copy under ~/Desktop/Cursor/BiddingApp/src/test/
+src/test/
 

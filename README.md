@@ -174,27 +174,6 @@ Consignor actions are **status-driven** so demo data and production listings sha
 
 
 
-## Testing
-
-```bash
-mvn test
-```
-
-Coverage includes:
-
-- Bid rejection (seller, increment, closed lot)
-- Auction close with and without a winner
-- Unpaid forfeit (status → `ENDED`, payments **not** deleted)
-- Gateway authorize vs decline and payment persistence
-- Consignor withdraw / reopen / delete
-- Security: public catalogue vs auth-gated bidding
-
-Tests use an isolated in-memory database so CI does not need a live Aiven instance.
-
----
-
-
-
 ## Demo walkthrough 
 
 
@@ -218,7 +197,6 @@ Tests use an isolated in-memory database so CI does not need a live Aiven instan
 BiddingApp/
 ├── frontend/                 React + Vite UI
 ├── src/main/java/            API, domain, services, WebSocket, security
-├── src/test/                 JUnit / Mockito / MockMvc
 ├── scripts/seed-demo.sh      Wipe + reseed Aiven demo catalogue (occasional)
 ├── scripts/show-db.py        Inspect Aiven tables (optional --wipe)
 ├── scripts/migrate-db.py     Apply schema SQL on Aiven if needed
