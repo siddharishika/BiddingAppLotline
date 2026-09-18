@@ -204,6 +204,7 @@ public class StripeCheckoutGateway implements PaymentGateway {
 
     private Session retrieveExpanded(String sessionId) throws StripeException {
         SessionRetrieveParams retrieveParams = SessionRetrieveParams.builder()
+                .addExpand("payment_intent")
                 .addExpand("payment_intent.latest_charge")
                 .build();
         return Session.retrieve(sessionId, retrieveParams, requestOptions);
@@ -240,10 +241,21 @@ public class StripeCheckoutGateway implements PaymentGateway {
             );
         }
         if (expired) {
-            return CheckoutFulfillment.expired(auctionId, payerId, session.getId());
+            return CheckoutFulfillment.expired(
+                    auctionId,
+                    payerId,
+                    session.getId(),
+                    paymentIntentId(session),
+                    stripeStatus(session)
+            );
         }
         if (failed) {
-            return CheckoutFulfillment.failed(auctionId, payerId, session.getId(), "Payment failed at Stripe");
+            return CheckoutFulfillment.failed(
+                    auctionId,
+                    payerId,
+                    session.getId(),
+                    stripeFailureReason(session)
+            );
         }
         log.info("Stripe has not confirmed a charge for session {} yet", session.getId());
         return CheckoutFulfillment.ignored();
@@ -287,6 +299,34 @@ public class StripeCheckoutGateway implements PaymentGateway {
         }
         PaymentIntent intent = session.getPaymentIntentObject();
         return intent == null ? null : intent.getId();
+    }
+
+    private static String stripeStatus(Session session) {
+        if (session.getStatus() != null && !session.getStatus().isBlank()) {
+            return session.getStatus();
+        }
+        return "expired";
+    }
+
+    private static String stripeFailureReason(Session session) {
+        PaymentIntent intent = session.getPaymentIntentObject();
+        if (intent != null && intent.getLastPaymentError() != null) {
+            String message = intent.getLastPaymentError().getMessage();
+            if (message != null && !message.isBlank()) {
+                return message;
+            }
+            String code = intent.getLastPaymentError().getCode();
+            if (code != null && !code.isBlank()) {
+                return code;
+            }
+        }
+        if (session.getPaymentStatus() != null && !session.getPaymentStatus().isBlank()) {
+            return session.getPaymentStatus();
+        }
+        if (session.getStatus() != null && !session.getStatus().isBlank()) {
+            return session.getStatus();
+        }
+        return "unpaid";
     }
 
     private static String lastFour(Session session) {

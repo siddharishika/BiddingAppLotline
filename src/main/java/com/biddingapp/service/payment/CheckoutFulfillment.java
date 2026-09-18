@@ -53,7 +53,16 @@ public class CheckoutFulfillment {
     }
 
     public static CheckoutFulfillment expired(Long auctionId, Long payerId, String sessionId) {
-        return new CheckoutFulfillment(Outcome.EXPIRED, auctionId, payerId, sessionId, null, null, "Checkout expired");
+        return expired(auctionId, payerId, sessionId, null, "expired");
+    }
+
+    public static CheckoutFulfillment expired(Long auctionId,
+                                              Long payerId,
+                                              String sessionId,
+                                              String transactionId,
+                                              String stripeStatus) {
+        String reason = stripeStatus == null || stripeStatus.isBlank() ? "expired" : stripeStatus;
+        return new CheckoutFulfillment(Outcome.EXPIRED, auctionId, payerId, sessionId, transactionId, null, reason);
     }
 
     public Outcome getOutcome() {

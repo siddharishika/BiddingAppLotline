@@ -60,8 +60,11 @@ public class PaymentService {
     }
 
     public List<PaymentDto> historyFor(User payer) {
+        dropNonStripeReceipts(payer);
         syncOpenCheckouts(payer);
         return paymentRepository.findByPayerOrderByCreatedAtDesc(payer).stream()
+                .filter(payment -> isStripeCheckoutSession(payment.getCheckoutSessionId()))
+                .filter(payment -> payment.getStatus() != PaymentStatus.PENDING)
                 .map(PaymentDto::from)
                 .toList();
     }
@@ -71,6 +74,9 @@ public class PaymentService {
         log.info("Starting hosted checkout for auction {} via {}", auction.getId(), paymentGateway.providerId());
 
         abandonUnconfirmedCheckouts(auction);
+        if (isPaid(auction)) {
+            throw new PaymentFailedException("This lot is already paid");
+        }
 
         CheckoutRequest request = new CheckoutRequest(
                 auction.getId(),
@@ -168,16 +174,6 @@ public class PaymentService {
         }
 
         if (fulfillment.getOutcome() == CheckoutFulfillment.Outcome.SUCCEEDED) {
-            if (paymentRepository.existsByAuctionAndStatus(auction, PaymentStatus.SUCCEEDED)) {
-                payment.setStatus(PaymentStatus.FAILED);
-                payment.setFailureReason("Lot already paid");
-                return paymentRepository.save(payment);
-            }
-            if (!isStillPayable(auction, payer)) {
-                payment.setStatus(PaymentStatus.FAILED);
-                payment.setFailureReason("Lot is no longer awaiting payment");
-                return paymentRepository.save(payment);
-            }
             payment.setStatus(PaymentStatus.SUCCEEDED);
             payment.setGatewayTransactionId(fulfillment.getTransactionId());
             payment.setLastFour(fulfillment.getLastFour());
@@ -188,76 +184,97 @@ public class PaymentService {
 
         if (fulfillment.getOutcome() == CheckoutFulfillment.Outcome.EXPIRED) {
             payment.setStatus(PaymentStatus.EXPIRED);
-            payment.setFailureReason("Checkout expired");
+            payment.setFailureReason(fulfillment.getFailureReason());
+            if (fulfillment.getTransactionId() != null) {
+                payment.setGatewayTransactionId(fulfillment.getTransactionId());
+            }
             return paymentRepository.save(payment);
         }
 
         payment.setStatus(PaymentStatus.FAILED);
-        payment.setFailureReason(fulfillment.getFailureReason() == null ? "Checkout failed" : fulfillment.getFailureReason());
+        payment.setFailureReason(fulfillment.getFailureReason());
+        if (fulfillment.getTransactionId() != null) {
+            payment.setGatewayTransactionId(fulfillment.getTransactionId());
+        }
         return paymentRepository.save(payment);
     }
 
     private void abandonUnconfirmedCheckouts(AuctionItem auction) {
         for (Payment previous : paymentRepository.findByAuctionAndStatus(auction, PaymentStatus.PENDING)) {
-            String previousSessionId = previous.getCheckoutSessionId();
-            if (previousSessionId != null && !previousSessionId.isBlank()) {
-                try {
-                    CheckoutFulfillment existing = paymentGateway.retrieveCheckout(previousSessionId);
-                    if (existing.getOutcome() == CheckoutFulfillment.Outcome.SUCCEEDED) {
-                        fulfillFromGateway(existing);
-                        throw new PaymentFailedException("This lot is already paid");
-                    }
-                    if (existing.getOutcome() == CheckoutFulfillment.Outcome.EXPIRED
-                            || existing.getOutcome() == CheckoutFulfillment.Outcome.FAILED) {
-                        fulfillFromGateway(existing);
-                        continue;
-                    }
-                    paymentGateway.expireCheckout(previousSessionId);
-                } catch (PaymentFailedException ex) {
-                    throw ex;
-                } catch (PaymentGatewayException ex) {
-                    log.warn("Could not sync previous checkout {}: {}", previousSessionId, ex.getMessage());
-                    try {
-                        paymentGateway.expireCheckout(previousSessionId);
-                    } catch (RuntimeException ignored) {
-                        // Local pending row is still marked replaced below.
-                    }
+            applyStripeReceipt(previous, true);
+        }
+    }
+
+    private void dropNonStripeReceipts(User payer) {
+        for (Payment payment : paymentRepository.findByPayerOrderByCreatedAtDesc(payer)) {
+            if (!isStripeCheckoutSession(payment.getCheckoutSessionId())) {
+                log.info("Dropping non-Stripe payment row {} session {}", payment.getId(), payment.getCheckoutSessionId());
+                paymentRepository.delete(payment);
+            }
+        }
+    }
+
+    private void applyStripeReceipt(Payment payment, boolean expireIfOpen) {
+        String sessionId = payment.getCheckoutSessionId();
+        if (!isStripeCheckoutSession(sessionId)) {
+            paymentRepository.delete(payment);
+            return;
+        }
+        try {
+            CheckoutFulfillment existing = paymentGateway.retrieveCheckout(sessionId);
+            if (isTerminal(existing)) {
+                fulfillFromGateway(existing);
+                return;
+            }
+            if (expireIfOpen) {
+                paymentGateway.expireCheckout(sessionId);
+                CheckoutFulfillment afterExpire = paymentGateway.retrieveCheckout(sessionId);
+                if (isTerminal(afterExpire)) {
+                    fulfillFromGateway(afterExpire);
                 }
             }
-            if (previous.getStatus() == PaymentStatus.SUCCEEDED) {
-                continue;
-            }
-            previous.setStatus(PaymentStatus.FAILED);
-            previous.setFailureReason("Replaced by a new checkout");
-            paymentRepository.save(previous);
+        } catch (PaymentGatewayException ex) {
+            log.warn("Stripe does not recognize checkout {}: {}", sessionId, ex.getMessage());
+            paymentRepository.delete(payment);
         }
     }
 
     private void syncOpenCheckouts(User payer) {
-        int remaining = 3;
+        int remaining = 5;
         for (Payment payment : paymentRepository.findByPayerOrderByCreatedAtDesc(payer)) {
             if (remaining <= 0) {
                 break;
             }
-            if (payment.getStatus() != PaymentStatus.PENDING || payment.getCheckoutSessionId() == null
-                    || payment.getCheckoutSessionId().isBlank()) {
+            if (!isStripeCheckoutSession(payment.getCheckoutSessionId())) {
+                continue;
+            }
+            if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
                 continue;
             }
             remaining--;
             try {
                 CheckoutFulfillment fulfillment = paymentGateway.retrieveCheckout(payment.getCheckoutSessionId());
-                if (fulfillment.getOutcome() == CheckoutFulfillment.Outcome.EXPIRED
-                        || fulfillment.getOutcome() == CheckoutFulfillment.Outcome.SUCCEEDED
-                        || fulfillment.getOutcome() == CheckoutFulfillment.Outcome.FAILED) {
+                if (isTerminal(fulfillment)) {
                     fulfillFromGateway(fulfillment);
                 } else {
-                    log.info("Stripe has not confirmed pending checkout {}", payment.getCheckoutSessionId());
+                    log.info("Stripe has not confirmed checkout {}", payment.getCheckoutSessionId());
                 }
             } catch (PaymentGatewayException ex) {
-                log.warn("Leaving checkout {} pending; Stripe retrieve failed: {}",
-                        payment.getCheckoutSessionId(), ex.getMessage());
+                log.warn("Stripe retrieve failed for {}: {}", payment.getCheckoutSessionId(), ex.getMessage());
             }
         }
+    }
+
+    private static boolean isTerminal(CheckoutFulfillment fulfillment) {
+        return fulfillment != null
+                && (fulfillment.getOutcome() == CheckoutFulfillment.Outcome.EXPIRED
+                || fulfillment.getOutcome() == CheckoutFulfillment.Outcome.SUCCEEDED
+                || fulfillment.getOutcome() == CheckoutFulfillment.Outcome.FAILED);
+    }
+
+    private static boolean isStripeCheckoutSession(String sessionId) {
+        return sessionId != null
+                && (sessionId.startsWith("cs_test_") || sessionId.startsWith("cs_live_"));
     }
 
     private void assertPayable(AuctionItem auction, User payer) {

@@ -87,13 +87,9 @@ export default function PaymentsPage() {
                 <td data-label="Amount">{money(payment.amount)}</td>
                 <td data-label="Status">{payment.status}</td>
                 <td data-label="Details">
-                  {payment.status === "FAILED"
-                    ? (payment.failureReason || "Payment declined")
-                    : payment.status === "EXPIRED"
-                      ? (payment.failureReason || "Checkout expired")
-                      : payment.status === "PENDING"
-                        ? "Stripe has not confirmed this checkout"
-                        : <code>{payment.gatewayTransactionId || "—"}</code>}
+                    {payment.status === "SUCCEEDED"
+                      ? <code>{payment.gatewayTransactionId || "—"}</code>
+                      : (payment.failureReason || "—")}
                 </td>
                 <td data-label="Card">{payment.lastFour ? `•••• ${payment.lastFour}` : "—"}</td>
                 <td data-label="When">{payment.createdAt ? formatWhen(payment.createdAt) : "—"}</td>
