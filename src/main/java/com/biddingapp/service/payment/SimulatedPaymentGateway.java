@@ -1,45 +1,71 @@
 package com.biddingapp.service.payment;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Stripe-style charge API used in this project. Cards never leave the server
- * beyond this gateway call; only a transaction id and last four digits are stored.
- *
- * Demo cards:
- * 4242 4242 4242 4242 — authorized
- * 4000 0000 0000 0002 — declined
+ * In-memory hosted checkout used by unit tests. No cards, no Stripe network.
  */
-@Component
 public class SimulatedPaymentGateway implements PaymentGateway {
 
-    private final String expectedApiKey;
+    private final Map<String, CheckoutRequest> sessions = new ConcurrentHashMap<>();
+    private final Map<String, CheckoutFulfillment.Outcome> outcomes = new ConcurrentHashMap<>();
 
-    public SimulatedPaymentGateway(@Value("${lotline.payments.api-key}") String expectedApiKey) {
-        this.expectedApiKey = expectedApiKey;
+    @Override
+    public String providerId() {
+        return "simulated";
     }
 
     @Override
-    public ChargeResult charge(ChargeRequest request) {
-        if (request.getApiKey() == null || !request.getApiKey().equals(expectedApiKey)) {
-            return ChargeResult.declined("Invalid payment gateway API key");
-        }
+    public boolean usesHostedCheckout() {
+        return true;
+    }
+
+    @Override
+    public CheckoutSessionResult createCheckoutSession(CheckoutRequest request) {
         if (request.getAmount() == null || request.getAmount().signum() <= 0) {
-            return ChargeResult.declined("Charge amount must be positive");
+            throw new PaymentGatewayException("Charge amount must be positive");
         }
+        String sessionId = "cs_sim_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+        sessions.put(sessionId, request);
+        outcomes.put(sessionId, CheckoutFulfillment.Outcome.IGNORED);
+        return new CheckoutSessionResult(sessionId, "https://checkout.local/pay/" + sessionId);
+    }
 
-        String digits = request.getCardNumber() == null ? "" : request.getCardNumber().replaceAll("\\s", "");
-        if (digits.startsWith("4000000000000002")) {
-            return ChargeResult.declined("Card declined by issuing bank");
+    @Override
+    public CheckoutFulfillment retrieveCheckout(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return CheckoutFulfillment.ignored();
         }
-        if (!digits.startsWith("4242")) {
-            return ChargeResult.declined("Unrecognized test card. Use 4242… for success or 4000…0002 for decline.");
+        CheckoutRequest request = sessions.get(sessionId);
+        if (request == null) {
+            return CheckoutFulfillment.ignored();
         }
+        CheckoutFulfillment.Outcome outcome = outcomes.getOrDefault(sessionId, CheckoutFulfillment.Outcome.IGNORED);
+        if (outcome == CheckoutFulfillment.Outcome.EXPIRED) {
+            return CheckoutFulfillment.expired(request.getAuctionId(), request.getPayerId(), sessionId);
+        }
+        if (outcome == CheckoutFulfillment.Outcome.SUCCEEDED) {
+            return CheckoutFulfillment.succeeded(
+                    request.getAuctionId(),
+                    request.getPayerId(),
+                    sessionId,
+                    "pi_sim_" + sessionId.substring(Math.min(7, sessionId.length())),
+                    "4242"
+            );
+        }
+        if (outcome == CheckoutFulfillment.Outcome.FAILED) {
+            return CheckoutFulfillment.failed(request.getAuctionId(), request.getPayerId(), sessionId, "Checkout failed");
+        }
+        return CheckoutFulfillment.ignored();
+    }
 
-        String transactionId = "ch_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
-        return ChargeResult.success(transactionId);
+    @Override
+    public void expireCheckout(String sessionId) {
+        if (sessionId == null || sessionId.isBlank() || !sessions.containsKey(sessionId)) {
+            return;
+        }
+        outcomes.put(sessionId, CheckoutFulfillment.Outcome.EXPIRED);
     }
 }

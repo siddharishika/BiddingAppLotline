@@ -21,6 +21,17 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     boolean existsByAuctionAndStatus(AuctionItem auction, PaymentStatus status);
 
+    @Query("""
+            SELECT p FROM Payment p
+            JOIN FETCH p.auction a
+            LEFT JOIN FETCH a.winner
+            JOIN FETCH p.payer
+            WHERE p.checkoutSessionId = :sessionId
+            """)
+    Optional<Payment> findByCheckoutSessionId(@Param("sessionId") String sessionId);
+
+    List<Payment> findByAuctionAndStatus(AuctionItem auction, PaymentStatus status);
+
     @Query("SELECT p.auction.id FROM Payment p WHERE p.status = :status AND p.auction.id IN :ids")
     List<Long> findAuctionIdsByStatus(@Param("status") PaymentStatus status, @Param("ids") List<Long> ids);
 

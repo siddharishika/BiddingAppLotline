@@ -20,6 +20,14 @@ services:
         sync: false
       - key: APP_CORS_ORIGINS
         sync: false
+      - key: LOTLINE_PAYMENTS_PROVIDER
+        sync: false
+      - key: LOTLINE_PAYMENTS_PUBLIC_APP_URL
+        value: https://lotline-e0kb.onrender.com
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       - key: HIKARI_MAX_POOL
         value: "3"
       - key: HIKARI_MIN_IDLE

@@ -30,7 +30,7 @@ Traditional “toy auction” demos stop at place-a-bid. Lotline covers the full
 | Persistence | Spring Data JPA + PostgreSQL on [Aiven](https://aiven.io) | Shared cloud catalogue for demos and production           |
 | Realtime    | Spring WebSocket, STOMP, SockJS                           | Bid events on `/topic/auctions/{id}` without polling      |
 | Security    | Spring Security, BCrypt, session cookie, CSRF             | Public browse; auth for bid, consign, pay                 |
-| Payments    | Pluggable `PaymentGateway` (Stripe-style)                 | Success/decline paths; PAN never stored                   |
+| Payments    | Stripe Checkout via `PaymentGateway`                  | Cards stay on Stripe; receipts persist in Postgres    |
 | Tests       | JUnit 5, Mockito, MockMvc                                 | Bid rules, close/forfeit, payments, security              |
 
 
@@ -135,11 +135,10 @@ Consignor actions are **status-driven** so demo data and production listings sha
 
 ### Payments and settlement
 
-- Only the winning bidder may checkout; already-paid and closed-window cases fail with clear errors.
-- **Failed** gateway responses are persisted in a `REQUIRES_NEW` transaction so a rolled-back checkout still leaves a receipt row.
+- Winners pay on **Stripe Checkout**; expired or failed sessions are stored as receipts (`EXPIRED` / `FAILED`).
 - **Receipts** and **Awaiting payment** come from `GET /api/account/payments` (payment history + unpaid `SOLD` wins).
 - After **7 days** unpaid, the scheduler forfeits the lot to `ENDED`, clears the winner and bids for reopen, and **keeps** payment rows for audit/receipts.
-- Card PAN is sent to the gateway only; DB stores last four digits and a `ch_…` id on success.
+- Card PAN never reaches Lotline. Stripe returns last four digits and a payment intent id on success.
 
 
 
@@ -165,10 +164,10 @@ Consignor actions are **status-driven** so demo data and production listings sha
 
 1. **Server is source of truth** — timers and “who won” are not trusted from the client; the scheduler closes lots and assigns winners.
 2. **Status machines over hardcoding** — withdraw/reopen/delete and payment eligibility key off status and role, so seeded “Quiet Study” style lots behave like any other listing.
-3. **Durable failed payments** — declined cards still create `Payment` rows so the consignor/bidder UX and audit trail stay honest.
+3. **Durable failed payments** — expired or failed Stripe sessions still create `Payment` rows so the consignor/bidder UX and audit trail stay honest.
 4. **Forfeit without erasing history** — unpaid settlement returns inventory to the issuer without deleting receipt data.
-5. **Gateway abstraction** — `PaymentGateway` keeps Stripe-like charge semantics swappable for a real provider later.
-6. **Cloud Postgres as source of truth** — demo and runtime data live on Aiven; reseeding is intentional and scripted (`scripts/seed-demo.sh`).
+5. **Gateway abstraction** — `PaymentGateway` is Stripe Checkout in production and an in-memory hosted session in tests.
+6. **Cloud Postgres as source of truth** — demo and runtime data live on Aiven; reseeding is `scripts/seed-db.py --seed`.
 
 ---
 
@@ -185,7 +184,7 @@ Consignor actions are **status-driven** so demo data and production listings sha
 | `admin`  | `password123` | Admin role present for extension                                |
 
 
-**Talk track:** open two browsers as `mara` and `julian` → bid on a live lot → watch WebSocket price update → wait for or explain scheduler close → settle with test card `4242424242424242` (decline: `4000000000000002`) → show receipt in Payments → show consignor withdraw on an upcoming collection by status.
+**Talk track:** open two browsers as `mara` and `julian` → bid on a live lot → watch WebSocket price update → wait for or explain scheduler close → settle on Stripe Checkout with test card `4242424242424242` (decline: `4000000000000002`) → show receipt in Payments → show consignor withdraw on an upcoming collection by status.
 
 ---
 
@@ -197,12 +196,10 @@ Consignor actions are **status-driven** so demo data and production listings sha
 BiddingApp/
 ├── frontend/                 React + Vite UI
 ├── src/main/java/            API, domain, services, WebSocket, security
-├── scripts/seed-demo.sh      Wipe + reseed Aiven demo catalogue (occasional)
-├── scripts/show-db.py        Inspect Aiven tables (optional --wipe)
-├── scripts/migrate-db.py     Apply schema SQL on Aiven if needed
+├── scripts/seed-db.py        Inspect, wipe, or reseed Aiven (one script)
+├── scripts/schema.sql        Idempotent Postgres schema
 ├── config/                   Aiven credentials (gitignored)
 ├── Dockerfile / render.yaml  Production deploy on Render
-└── docker-compose.yml        Optional local Postgres 16 (dev only)
 ```
 
 ---
@@ -213,19 +210,19 @@ BiddingApp/
 
 **Prerequisites:** JDK 17, Maven, Node.js, an Aiven PostgreSQL service that is **Running**, and `config/application-aiven.properties` (gitignored) with JDBC URL, username, and password (`sslmode=require`).
 
-**Seed / refresh the cloud demo catalogue** (wipes Aiven demo tables, then reseeds):
+**Seed / refresh the cloud demo catalogue** (wipes Aiven demo tables, then reseeds). Payments are not invented:
 
 ```bash
-./scripts/seed-demo.sh
+python3 -B scripts/seed-db.py --seed
 ```
 
 **Inspect Aiven:**
 
 ```bash
-python3 -B scripts/show-db.py
+python3 -B scripts/seed-db.py
 ```
 
-(Use a venv with `psycopg2-binary` if needed; `seed-demo.sh` creates `scripts/.venv` once.)
+The script uses `scripts/.venv` by itself (creates it once).
 
 **Start the app** (API uses the `aiven` profile by default via Maven):
 
@@ -237,5 +234,3 @@ cd frontend && npm install && npm run dev
 UI: [http://localhost:5173](http://localhost:5173) · API: [http://localhost:8080/api](http://localhost:8080/api)
 
 If the Aiven service is powered off or unreachable, start it in the [Aiven console](https://console.aiven.io) and confirm Allowed IPs include your machine (or `0.0.0.0/0` for demos).
-
-Optional: `docker compose up -d` for a throwaway local Postgres — the default path is Aiven.

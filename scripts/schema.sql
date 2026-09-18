@@ -12,6 +12,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lot_collections (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(140) NOT NULL,
+    description VARCHAR(4000) NOT NULL DEFAULT '',
+    seller_id BIGINT NOT NULL REFERENCES users (id),
+    created_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auction_items (
     id BIGSERIAL PRIMARY KEY,
     title VARCHAR(140) NOT NULL,
@@ -23,6 +31,7 @@ CREATE TABLE IF NOT EXISTS auction_items (
     current_price NUMERIC(12, 2) NOT NULL,
     seller_id BIGINT NOT NULL REFERENCES users (id),
     winner_id BIGINT REFERENCES users (id),
+    collection_id BIGINT REFERENCES lot_collections (id),
     start_time TIMESTAMPTZ NOT NULL,
     end_time TIMESTAMPTZ NOT NULL,
     status VARCHAR(20) NOT NULL,
@@ -43,46 +52,34 @@ CREATE TABLE IF NOT EXISTS payments (
     payer_id BIGINT NOT NULL REFERENCES users (id),
     amount NUMERIC(12, 2) NOT NULL,
     status VARCHAR(20) NOT NULL,
-    gateway_transaction_id VARCHAR(80),
+    gateway_transaction_id VARCHAR(255),
+    checkout_session_id VARCHAR(255),
     last_four VARCHAR(4),
     failure_reason VARCHAR(240),
     created_at TIMESTAMPTZ NOT NULL
 );
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+-- Existing databases created before collections / hosted checkout.
+ALTER TABLE lot_collections
+    ADD COLUMN IF NOT EXISTS description VARCHAR(4000);
 
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS title VARCHAR(140);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS description VARCHAR(4000);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS category VARCHAR(60);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS image_url VARCHAR(500);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS starting_price NUMERIC(12, 2);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS min_increment NUMERIC(12, 2);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS current_price NUMERIC(12, 2);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS seller_id BIGINT;
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS winner_id BIGINT;
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS status VARCHAR(20);
-ALTER TABLE auction_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+UPDATE lot_collections
+SET description = ''
+WHERE description IS NULL;
 
-ALTER TABLE bids ADD COLUMN IF NOT EXISTS auction_id BIGINT;
-ALTER TABLE bids ADD COLUMN IF NOT EXISTS bidder_id BIGINT;
-ALTER TABLE bids ADD COLUMN IF NOT EXISTS amount NUMERIC(12, 2);
-ALTER TABLE bids ADD COLUMN IF NOT EXISTS placed_at TIMESTAMPTZ;
+ALTER TABLE auction_items
+    ADD COLUMN IF NOT EXISTS collection_id BIGINT REFERENCES lot_collections (id);
 
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS auction_id BIGINT;
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS payer_id BIGINT;
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount NUMERIC(12, 2);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS status VARCHAR(20);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS gateway_transaction_id VARCHAR(80);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS last_four VARCHAR(4);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(240);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS checkout_session_id VARCHAR(255);
+ALTER TABLE payments ALTER COLUMN gateway_transaction_id TYPE VARCHAR(255);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_checkout_session_id
+    ON payments (checkout_session_id)
+    WHERE checkout_session_id IS NOT NULL;
+
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_status_check;
+ALTER TABLE payments ADD CONSTRAINT payments_status_check
+    CHECK (status IN ('PENDING', 'SUCCEEDED', 'FAILED', 'EXPIRED'));
 
 CREATE INDEX IF NOT EXISTS idx_auction_items_status_start_time
     ON auction_items (status, start_time);
@@ -96,6 +93,12 @@ CREATE INDEX IF NOT EXISTS idx_auction_items_seller_id
 CREATE INDEX IF NOT EXISTS idx_auction_items_winner_id
     ON auction_items (winner_id);
 
+CREATE INDEX IF NOT EXISTS idx_auction_items_collection_id
+    ON auction_items (collection_id);
+
+CREATE INDEX IF NOT EXISTS idx_lot_collections_seller_id
+    ON lot_collections (seller_id);
+
 CREATE INDEX IF NOT EXISTS idx_bids_auction_id
     ON bids (auction_id);
 
@@ -107,23 +110,3 @@ CREATE INDEX IF NOT EXISTS idx_payments_auction_id
 
 CREATE INDEX IF NOT EXISTS idx_payments_payer_id
     ON payments (payer_id);
-
-CREATE TABLE IF NOT EXISTS lot_collections (
-    id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(140) NOT NULL,
-    seller_id BIGINT NOT NULL REFERENCES users (id),
-    created_at TIMESTAMPTZ NOT NULL
-);
--- Every lot belongs to a collection. A single-lot posting still has a collection row.
-
-ALTER TABLE auction_items
-    ADD COLUMN IF NOT EXISTS collection_id BIGINT REFERENCES lot_collections (id);
-
-CREATE INDEX IF NOT EXISTS idx_lot_collections_seller_id
-    ON lot_collections (seller_id);
-
-CREATE INDEX IF NOT EXISTS idx_auction_items_collection_id
-    ON auction_items (collection_id);
-
-ALTER TABLE lot_collections
-    ADD COLUMN IF NOT EXISTS description VARCHAR(4000);

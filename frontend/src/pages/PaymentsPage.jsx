@@ -1,29 +1,50 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { getPayments } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { completeCheckout, getPayments } from "../api";
 import { formatWhen, money, paymentDueLabel } from "../format";
 import { useToast } from "../toast";
 
 export default function PaymentsPage() {
   const toast = useToast();
   const location = useLocation();
+  const navigate = useNavigate();
+  const completing = useRef(false);
   const [data, setData] = useState({ payments: [], wins: [] });
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const sessionId = params.get("session_id");
+    if (params.get("checkout") === "success" && sessionId) {
+      if (completing.current) {
+        return;
+      }
+      completing.current = true;
+      completeCheckout(sessionId)
+        .then(() => toast.success("Payment authorized. Your receipt is in Payments."))
+        .catch((err) => toast.error(err.message || "Payment is still processing"))
+        .finally(() => {
+          navigate("/payments", { replace: true });
+        });
+      return;
+    }
+
     getPayments()
       .then((payload) => {
-        // Receipts and awaiting lots come from the database only.
         setData({
           payments: payload.payments ?? [],
           wins: payload.wins ?? [],
         });
       })
       .catch((err) => toast.error(err.message));
-  }, [toast, location.key]);
+  }, [toast, location.key, location.search, navigate]);
 
   const retryAuctionIds = useMemo(() => new Set(
     data.payments
-      .filter((payment) => payment.status === "FAILED" && payment.auctionId != null)
+      .filter((payment) => (
+        payment.status === "FAILED"
+        || payment.status === "PENDING"
+        || payment.status === "EXPIRED"
+      ) && payment.auctionId != null)
       .map((payment) => payment.auctionId)
   ), [data.payments]);
 
@@ -58,15 +79,20 @@ export default function PaymentsPage() {
                 <td data-label="Details">
                   {payment.status === "FAILED"
                     ? (payment.failureReason || "Payment declined")
-                    : <code>{payment.gatewayTransactionId || "—"}</code>}
+                    : payment.status === "EXPIRED"
+                      ? (payment.failureReason || "Checkout expired")
+                      : payment.status === "PENDING"
+                        ? "Checkout started"
+                        : <code>{payment.gatewayTransactionId || "—"}</code>}
                 </td>
                 <td data-label="Card">{payment.lastFour ? `•••• ${payment.lastFour}` : "—"}</td>
                 <td data-label="When">{payment.createdAt ? formatWhen(payment.createdAt) : "—"}</td>
                 <td className="col-actions" data-label="Actions">
-                  {payment.status === "FAILED" && payment.auctionId != null
+                  {(payment.status === "FAILED" || payment.status === "PENDING" || payment.status === "EXPIRED")
+                    && payment.auctionId != null
                     && data.wins.some((lot) => lot.id === payment.auctionId) && (
                     <Link className="btn btn-gold btn-compact" to={`/auctions/${payment.auctionId}/pay`}>
-                      Retry
+                      {payment.status === "PENDING" ? "Continue" : "Retry"}
                     </Link>
                   )}
                 </td>

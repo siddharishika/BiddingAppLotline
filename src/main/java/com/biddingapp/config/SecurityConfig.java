@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/collections").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/collections/{id:\\d+}").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/api/webhooks/stripe").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )
@@ -68,6 +69,7 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/register",
                                 "/api/auth/logout",
+                                "/api/webhooks/stripe",
                                 "/ws/**"
                         )
                 )

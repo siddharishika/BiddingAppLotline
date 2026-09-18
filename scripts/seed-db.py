@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Inspect (or wipe) Lotline tables on Aiven PostgreSQL.
+"""One Lotline Aiven helper: inspect, wipe, or reseed.
 
 Reads config/application-aiven.properties. Does not print the password.
-Does not write __pycache__ / .pyc.
 
-Usage:
-  python3 -B scripts/show-db.py           # print tables + samples
-  python3 -B scripts/show-db.py --wipe    # truncate demo tables (used by seed-demo.sh)
+  python3 -B scripts/seed-db.py                 # show tables
+  python3 -B scripts/seed-db.py --empty-payments
+  python3 -B scripts/seed-db.py --wipe          # truncate demo tables
+  python3 -B scripts/seed-db.py --seed          # wipe + Spring seed (catalogue only)
+
+Payments are never invented. Unpaid SOLD lots stay in Awaiting until Stripe Checkout.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import venv
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -19,6 +24,8 @@ sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 PROPS = ROOT / "config" / "application-aiven.properties"
+SCHEMA = ROOT / "scripts" / "schema.sql"
+VENV_PY = ROOT / "scripts" / ".venv" / "bin" / "python"
 
 INACTIVE_HINT = (
     "Aiven PostgreSQL looks inactive or unreachable.\n"
@@ -26,6 +33,20 @@ INACTIVE_HINT = (
     "    wait until it is Running, then retry.\n"
     "  → Also confirm Allowed IP addresses include this machine (or 0.0.0.0/0 for demos)."
 )
+
+
+def ensure_venv() -> None:
+    if VENV_PY.exists():
+        return
+    venv.EnvBuilder(with_pip=True).create(ROOT / "scripts" / ".venv")
+    subprocess.check_call([str(VENV_PY), "-m", "pip", "install", "-q", "psycopg2-binary"])
+
+
+def reexec_venv() -> None:
+    ensure_venv()
+    if Path(sys.executable).resolve() == VENV_PY.resolve():
+        return
+    os.execv(str(VENV_PY), [str(VENV_PY), "-B", str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 def load_props(path: Path = PROPS) -> dict[str, str]:
@@ -65,7 +86,7 @@ def connect():
         import psycopg2
         from psycopg2 import OperationalError
     except ImportError:
-        sys.exit("Install the driver first: python3 -m pip install psycopg2-binary")
+        sys.exit("Install psycopg2-binary in scripts/.venv")
 
     props = load_props()
     dsn = jdbc_to_dsn(
@@ -98,6 +119,13 @@ def connect():
         sys.exit(f"Could not connect to Aiven PostgreSQL: {exc}")
 
 
+def migrate(conn) -> None:
+    if not SCHEMA.exists():
+        sys.exit(f"Missing {SCHEMA}")
+    with conn.cursor() as cur:
+        cur.execute(SCHEMA.read_text())
+
+
 def wipe(conn) -> list[str]:
     tables = ["payments", "bids", "auction_items", "lot_collections", "users"]
     with conn.cursor() as cur:
@@ -118,6 +146,12 @@ def wipe(conn) -> list[str]:
             + " RESTART IDENTITY CASCADE"
         )
     return to_wipe
+
+
+def empty_payments(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM payments")
+        return cur.rowcount
 
 
 def show(conn, dsn: dict[str, str]) -> None:
@@ -155,7 +189,11 @@ def show(conn, dsn: dict[str, str]) -> None:
                 ORDER BY i.id
                 """,
             "bids": 'SELECT id, auction_id, bidder_id, amount, placed_at FROM "bids" ORDER BY id',
-            "payments": 'SELECT id, auction_id, payer_id, amount, status FROM "payments" ORDER BY id',
+            "payments": """
+                SELECT id, auction_id, payer_id, amount, status,
+                       gateway_transaction_id, checkout_session_id
+                FROM "payments" ORDER BY id
+                """,
         }
 
         for name, sql in previews.items():
@@ -174,21 +212,55 @@ def show(conn, dsn: dict[str, str]) -> None:
                 print("  " + " | ".join(str(row[col]) for col in columns))
 
 
+def spring_seed() -> None:
+    java_home = os.environ.get("JAVA_HOME", "/opt/homebrew/opt/openjdk@17")
+    env = os.environ.copy()
+    env["JAVA_HOME"] = java_home
+    env["PATH"] = f"{java_home}/bin:{env.get('PATH', '')}"
+    subprocess.check_call(
+        [
+            "mvn",
+            "-q",
+            "spring-boot:run",
+            "-Dspring-boot.run.profiles=seed,aiven",
+            "-Dspring-boot.run.arguments=--spring.main.web-application-type=servlet "
+            "--spring.task.scheduling.enabled=false",
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+
 def main() -> None:
-    wipe_only = "--wipe" in sys.argv[1:]
+    reexec_venv()
+    args = sys.argv[1:]
     conn, dsn = connect()
     try:
-        if wipe_only:
+        if "--seed" in args:
+            wiped = wipe(conn)
+            migrate(conn)
+            print(f"Wiped: {', '.join(wiped) if wiped else '(empty schema)'}")
+            print("Seeding catalogue via Spring (no payment receipts)…")
+            conn.close()
+            conn = None
+            spring_seed()
+            conn, dsn = connect()
+            show(conn, dsn)
+            return
+        if "--wipe" in args:
             wiped = wipe(conn)
             print(f"Connected to {dsn['host']}:{dsn['port']}/{dsn['dbname']} as {dsn['user']}")
-            if wiped:
-                print("Wiped tables: " + ", ".join(wiped))
-            else:
-                print("No Lotline tables yet (Hibernate/ddl will create them on seed).")
+            print("Wiped tables: " + (", ".join(wiped) if wiped else "(none yet)"))
+            return
+        if "--empty-payments" in args:
+            deleted = empty_payments(conn)
+            print(f"Cleared {deleted} payment row(s).")
+            show(conn, dsn)
             return
         show(conn, dsn)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":

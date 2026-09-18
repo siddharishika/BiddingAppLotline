@@ -67,8 +67,14 @@ export const createCollection = (payload) =>
   api("/api/auctions/collections", { method: "POST", body: JSON.stringify(payload) });
 export const placeBid = (id, amount) =>
   api(`/api/auctions/${id}/bids`, { method: "POST", body: JSON.stringify({ amount }) });
-export const payAuction = (id, payload) =>
-  api(`/api/auctions/${id}/pay`, { method: "POST", body: JSON.stringify(payload) });
+export const getPaymentGateway = () => api("/api/account/payments/gateway");
+export const startCheckout = (id) =>
+  api(`/api/auctions/${id}/checkout`, { method: "POST" });
+export const completeCheckout = (sessionId) =>
+  api("/api/account/payments/checkout/complete", {
+    method: "POST",
+    body: JSON.stringify({ sessionId }),
+  });
 export const getCategories = () => api("/api/categories");
 export const getMyLots = () => api("/api/account/lots");
 export const getMyBids = () => api("/api/account/bids");

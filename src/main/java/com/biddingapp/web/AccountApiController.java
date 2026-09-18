@@ -10,8 +10,10 @@ import com.biddingapp.service.UserService;
 import com.biddingapp.web.dto.AccountBidsDto;
 import com.biddingapp.web.dto.AccountPaymentsDto;
 import com.biddingapp.web.dto.AuctionSummaryDto;
+import com.biddingapp.web.dto.CheckoutDto;
+import com.biddingapp.web.dto.CompleteCheckoutForm;
+import com.biddingapp.web.dto.GatewayDto;
 import com.biddingapp.web.dto.PaymentDto;
-import com.biddingapp.web.dto.PaymentForm;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -119,17 +121,26 @@ public class AccountApiController {
         );
     }
 
-    @PostMapping("/api/auctions/{id:\\d+}/pay")
-    @ResponseStatus(HttpStatus.CREATED)
-    public PaymentDto pay(@PathVariable Long id,
-                          @Valid @RequestBody PaymentForm form,
-                          Authentication authentication) {
+    @GetMapping("/api/account/payments/gateway")
+    public GatewayDto paymentGateway() {
+        return paymentService.gatewayInfo();
+    }
+
+    @PostMapping("/api/auctions/{id:\\d+}/checkout")
+    public CheckoutDto startCheckout(@PathVariable Long id, Authentication authentication) {
         AuctionItem auction = auctionService.require(id);
         User user = AuthSupport.currentUser(authentication, userService);
         if (auction.getWinner() == null || !auction.getWinner().getId().equals(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the winning bidder can complete payment");
         }
-        var payment = paymentService.checkout(auction, user, form);
-        return PaymentDto.from(payment);
+        var session = paymentService.startHostedCheckout(auction, user);
+        return new CheckoutDto(session.getUrl(), session.getSessionId());
+    }
+
+    @PostMapping("/api/account/payments/checkout/complete")
+    public PaymentDto completeCheckout(@Valid @RequestBody CompleteCheckoutForm form,
+                                       Authentication authentication) {
+        User user = AuthSupport.currentUser(authentication, userService);
+        return PaymentDto.from(paymentService.completeHostedCheckout(form.getSessionId(), user));
     }
 }

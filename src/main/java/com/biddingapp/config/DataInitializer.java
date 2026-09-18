@@ -4,14 +4,11 @@ import com.biddingapp.domain.AuctionItem;
 import com.biddingapp.domain.AuctionStatus;
 import com.biddingapp.domain.Bid;
 import com.biddingapp.domain.LotCollection;
-import com.biddingapp.domain.Payment;
-import com.biddingapp.domain.PaymentStatus;
 import com.biddingapp.domain.Role;
 import com.biddingapp.domain.User;
 import com.biddingapp.repository.AuctionItemRepository;
 import com.biddingapp.repository.BidRepository;
 import com.biddingapp.repository.LotCollectionRepository;
-import com.biddingapp.repository.PaymentRepository;
 import com.biddingapp.repository.UserRepository;
 import com.biddingapp.service.AuctionService;
 import com.biddingapp.service.CollectionService;
@@ -34,7 +31,6 @@ public class DataInitializer {
     CommandLineRunner seedCatalog(UserRepository users,
                                   AuctionItemRepository auctions,
                                   BidRepository bids,
-                                  PaymentRepository payments,
                                   LotCollectionRepository collections,
                                   CollectionService collectionService,
                                   AuctionService auctionService,
@@ -46,20 +42,18 @@ public class DataInitializer {
                 User seller = saveUser(users, encoder, "seller", "seller@lotline.local", Role.USER);
                 User mara = saveUser(users, encoder, "mara", "mara@lotline.local", Role.USER);
                 User julian = saveUser(users, encoder, "julian", "julian@lotline.local", Role.USER);
-                seedSingleLots(auctions, bids, payments, collections, seller, mara, julian);
+                seedSingleLots(auctions, bids, collections, seller, mara, julian);
             }
             collectionService.wrapOrphans();
             collectionService.refreshSeededCopy();
             seedCollectionsIfMissing(users, auctions, bids, collections);
             auctionService.closeExpired(Instant.now());
-            seedPaymentsIfMissing(users, auctions, payments);
-            // DemoCatalogueMaintainer (ApplicationRunner) then re-aligns windows to "today".
+            // Payment receipts are never seeded. Only real Stripe Checkout rows belong in payments.
         };
     }
 
     private static void seedSingleLots(AuctionItemRepository auctions,
                                        BidRepository bids,
-                                       PaymentRepository payments,
                                        LotCollectionRepository collections,
                                        User seller,
                                        User mara,
@@ -117,7 +111,6 @@ public class DataInitializer {
         watch.setWinner(mara);
         watch.setStatus(AuctionStatus.SOLD);
         watch = auctions.save(watch);
-        savePayment(payments, watch, mara, PaymentStatus.SUCCEEDED, "4242", "ch_seed_watch", null, now.minus(Duration.ofHours(1)));
 
         place(bids, book, julian, "900.00", now.minus(Duration.ofHours(4)));
         place(bids, book, mara, "980.00", now.minus(Duration.ofHours(2)));
@@ -126,7 +119,6 @@ public class DataInitializer {
         book.setWinner(mara);
         book.setStatus(AuctionStatus.SOLD);
         book = auctions.save(book);
-        savePayment(payments, book, mara, PaymentStatus.FAILED, "0002", null, "Card declined by issuer", now.minus(Duration.ofMinutes(50)));
 
         place(bids, painting, julian, "1650.00", now.minus(Duration.ofHours(1)));
         painting = reload(auctions, painting.getId());
@@ -139,60 +131,6 @@ public class DataInitializer {
         vinyl = reload(auctions, vinyl.getId());
         vinyl.setCurrentPrice(new BigDecimal("360.00"));
         auctions.save(vinyl);
-    }
-
-    /**
-     * Persists demo payment rows when the payments table is empty so Receipts / Awaiting
-     * payment are driven only by database state after a clean seed.
-     */
-    private static void seedPaymentsIfMissing(UserRepository users,
-                                              AuctionItemRepository auctions,
-                                              PaymentRepository payments) {
-        if (payments.count() > 0) {
-            return;
-        }
-        User mara = users.findByUsername("mara").orElse(null);
-        if (mara == null) {
-            return;
-        }
-        Instant now = Instant.now();
-        List<AuctionItem> maraWins = auctions.findByWinnerOrderByEndTimeDesc(mara).stream()
-                .filter(lot -> lot.getStatus() == AuctionStatus.SOLD)
-                .toList();
-        if (maraWins.isEmpty()) {
-            return;
-        }
-        // Receipts + Awaiting both come from DB rows: one SUCCEEDED (paid) and one FAILED
-        // (still unpaid) when two wins exist; a single win gets FAILED only so Retry appears.
-        if (maraWins.size() >= 2) {
-            savePayment(payments, maraWins.get(0), mara, PaymentStatus.SUCCEEDED, "4242",
-                    "ch_seed_" + maraWins.get(0).getId(), null, now.minus(Duration.ofHours(2)));
-            savePayment(payments, maraWins.get(1), mara, PaymentStatus.FAILED, "0002",
-                    null, "Card declined by issuer", now.minus(Duration.ofMinutes(40)));
-            return;
-        }
-        savePayment(payments, maraWins.get(0), mara, PaymentStatus.FAILED, "0002",
-                null, "Card declined by issuer", now.minus(Duration.ofMinutes(40)));
-    }
-
-    private static void savePayment(PaymentRepository payments,
-                                    AuctionItem auction,
-                                    User payer,
-                                    PaymentStatus status,
-                                    String lastFour,
-                                    String gatewayId,
-                                    String failureReason,
-                                    Instant createdAt) {
-        Payment payment = new Payment();
-        payment.setAuction(auction);
-        payment.setPayer(payer);
-        payment.setAmount(auction.getCurrentPrice());
-        payment.setStatus(status);
-        payment.setLastFour(lastFour);
-        payment.setGatewayTransactionId(gatewayId);
-        payment.setFailureReason(failureReason);
-        payment.setCreatedAt(createdAt);
-        payments.save(payment);
     }
 
     private static void seedCollectionsIfMissing(UserRepository users,
@@ -298,7 +236,7 @@ public class DataInitializer {
         if (!collections.existsByName("On the kitchen table")) {
             LotCollection kitchen = collections.save(namedCollection(
                     "On the kitchen table",
-                    "Two working pieces from a cook's dresser, offered as a short live collection.",
+                    CatalogueCopy.KITCHEN_TABLE,
                     seller));
             AuctionItem pan = lot(
                     "Copper sauté pan",
@@ -323,7 +261,7 @@ public class DataInitializer {
                     .findFirst()
                     .orElseGet(() -> collections.save(namedCollection(
                             "Under the porch light",
-                            "Three lots still open on the floor together: a lantern, a folding table, and a woven seat. Bid each room on its own clock.",
+                            CatalogueCopy.PORCH_LIGHT,
                             seller)));
             Instant opened = now.minus(Duration.ofMinutes(15));
             Instant closes = now.plus(Duration.ofHours(4));
@@ -379,7 +317,7 @@ public class DataInitializer {
         if (!collections.existsByName("Guest bedroom, not yet shown")) {
             LotCollection guest = collections.save(namedCollection(
                     "Guest bedroom, not yet shown",
-                    "Two pieces for a spare room that has not opened to the floor yet. The issuer can still withdraw the posting.",
+                    CatalogueCopy.GUEST_BEDROOM,
                     mara));
             Instant opens = now.plus(Duration.ofDays(2));
             Instant closes = opens.plus(Duration.ofHours(6));

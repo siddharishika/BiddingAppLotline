@@ -4,6 +4,7 @@ import com.biddingapp.service.BidRejectedException;
 import com.biddingapp.service.ForbiddenException;
 import com.biddingapp.service.NotFoundException;
 import com.biddingapp.service.PaymentFailedException;
+import com.biddingapp.service.payment.PaymentGatewayException;
 import com.biddingapp.web.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,7 +26,7 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(ex.getMessage()));
     }
 
-    @ExceptionHandler({BidRejectedException.class, PaymentFailedException.class, IllegalArgumentException.class})
+    @ExceptionHandler({BidRejectedException.class, PaymentFailedException.class, PaymentGatewayException.class, IllegalArgumentException.class})
     public ResponseEntity<ErrorResponse> badRequest(RuntimeException ex) {
         return ResponseEntity.badRequest().body(new ErrorResponse(ex.getMessage()));
     }

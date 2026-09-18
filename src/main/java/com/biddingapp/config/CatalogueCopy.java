@@ -56,6 +56,15 @@ public final class CatalogueCopy {
     public static final String QUIET_STUDY = """
             A desk lamp and a set of unused morocco diaries from a room meant for reading rather than display. The lamp throws light where a page needs it; the diaries were stock, not a confession. Together they describe a quiet study without pretending to be a library sale. Each lot remains a separate object. The collection name is only for this posting.""";
 
+    static final String KITCHEN_TABLE = """
+            Two working pieces from a cook's dresser, offered as a short live collection: a copper sauté pan and a stoneware cream jug. They lived on the same table, not in a matched suite. Each lot keeps its own category and hammer.""";
+
+    static final String PORCH_LIGHT = """
+            Three lots still open on the floor together: a lantern, a folding table, and a woven seat. Bid each room on its own clock. They sat under the same porch light, used rather than displayed.""";
+
+    static final String GUEST_BEDROOM = """
+            Two pieces for a spare room that has not opened to the floor yet: a patchwork quilt and an ironstone ewer and basin. The issuer can still withdraw the posting. Each lot remains its own object.""";
+
     public static Map<String, String> lotsByTitle() {
         Map<String, String> copy = new LinkedHashMap<>();
         copy.put("1968 Omega Seamaster Chronograph", WATCH);
@@ -79,6 +88,9 @@ public final class CatalogueCopy {
         copy.put("A weekend by the sea", WEEKEND_BY_THE_SEA);
         copy.put("After midnight at the club", AFTER_MIDNIGHT);
         copy.put("The quiet study", QUIET_STUDY);
+        copy.put("On the kitchen table", KITCHEN_TABLE);
+        copy.put("Under the porch light", PORCH_LIGHT);
+        copy.put("Guest bedroom, not yet shown", GUEST_BEDROOM);
         return copy;
     }
 }

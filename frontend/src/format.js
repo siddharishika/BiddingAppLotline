@@ -52,9 +52,6 @@ export function lotCountLabel(count) {
 export function liveLotCountLabel(liveCount, lotCount) {
   const live = Number(liveCount ?? 0);
   const lots = Number(lotCount ?? 0);
-  if (live <= 0) {
-    return lotCountLabel(lots);
-  }
   const livePhrase = live === 1 ? "1 lot live" : `${live} lots live`;
   if (lots <= 0) {
     return livePhrase;

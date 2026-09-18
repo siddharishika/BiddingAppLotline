@@ -39,8 +39,11 @@ public class Payment {
     @Column(nullable = false, length = 20)
     private PaymentStatus status = PaymentStatus.PENDING;
 
-    @Column(length = 80)
+    @Column(length = 255)
     private String gatewayTransactionId;
+
+    @Column(length = 255)
+    private String checkoutSessionId;
 
     @Column(length = 4)
     private String lastFour;
@@ -104,6 +107,14 @@ public class Payment {
 
     public void setGatewayTransactionId(String gatewayTransactionId) {
         this.gatewayTransactionId = gatewayTransactionId;
+    }
+
+    public String getCheckoutSessionId() {
+        return checkoutSessionId;
+    }
+
+    public void setCheckoutSessionId(String checkoutSessionId) {
+        this.checkoutSessionId = checkoutSessionId;
     }
 
     public String getLastFour() {
