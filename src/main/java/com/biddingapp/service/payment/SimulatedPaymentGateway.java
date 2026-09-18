@@ -1,5 +1,8 @@
 package com.biddingapp.service.payment;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -8,6 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory hosted checkout used by unit tests. No cards, no Stripe network.
  */
 public class SimulatedPaymentGateway implements PaymentGateway {
+
+    private static final Logger log = LoggerFactory.getLogger(SimulatedPaymentGateway.class);
 
     private final Map<String, CheckoutRequest> sessions = new ConcurrentHashMap<>();
     private final Map<String, CheckoutFulfillment.Outcome> outcomes = new ConcurrentHashMap<>();
@@ -30,6 +35,7 @@ public class SimulatedPaymentGateway implements PaymentGateway {
         String sessionId = "cs_sim_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
         sessions.put(sessionId, request);
         outcomes.put(sessionId, CheckoutFulfillment.Outcome.IGNORED);
+        log.warn("Simulated checkout {} for auction {}; Stripe was not contacted", sessionId, request.getAuctionId());
         return new CheckoutSessionResult(sessionId, "https://checkout.local/pay/" + sessionId);
     }
 

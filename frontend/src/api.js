@@ -22,20 +22,36 @@ async function csrfToken() {
 }
 
 export async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const method = (options.method || "GET").toUpperCase();
-  if (options.body && !headers["Content-Type"]) {
+  const { timeoutMs, headers: extraHeaders, ...fetchOptions } = options;
+  const headers = { ...(extraHeaders || {}) };
+  const method = (fetchOptions.method || "GET").toUpperCase();
+  if (fetchOptions.body && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
   if (method !== "GET" && method !== "HEAD") {
     headers["X-XSRF-TOKEN"] = await csrfToken();
   }
 
-  const response = await fetch(path, {
-    credentials: "include",
-    ...options,
-    headers,
-  });
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  let response;
+  try {
+    response = await fetch(path, {
+      credentials: "include",
+      ...fetchOptions,
+      headers,
+      signal: fetchOptions.signal ?? controller?.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("Stripe did not respond in time. No payment was recorded.");
+    }
+    throw err;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 
   if (response.status === 204) {
     return null;
@@ -69,16 +85,17 @@ export const placeBid = (id, amount) =>
   api(`/api/auctions/${id}/bids`, { method: "POST", body: JSON.stringify({ amount }) });
 export const getPaymentGateway = () => api("/api/account/payments/gateway");
 export const startCheckout = (id) =>
-  api(`/api/auctions/${id}/checkout`, { method: "POST" });
+  api(`/api/auctions/${id}/checkout`, { method: "POST", timeoutMs: 25000 });
 export const completeCheckout = (sessionId) =>
   api("/api/account/payments/checkout/complete", {
     method: "POST",
     body: JSON.stringify({ sessionId }),
+    timeoutMs: 25000,
   });
 export const getCategories = () => api("/api/categories");
 export const getMyLots = () => api("/api/account/lots");
 export const getMyBids = () => api("/api/account/bids");
-export const getPayments = () => api("/api/account/payments");
+export const getPayments = () => api("/api/account/payments", { timeoutMs: 30000 });
 export const withdrawLot = (id) => api(`/api/account/lots/${id}/withdraw`, { method: "POST" });
 export const reopenLot = (id) => api(`/api/account/lots/${id}/reopen`, { method: "POST" });
 export const deleteLot = (id) => api(`/api/account/lots/${id}`, { method: "DELETE" });

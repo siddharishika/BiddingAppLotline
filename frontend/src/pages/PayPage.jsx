@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { getAuction, startCheckout } from "../api";
+import { getAuction, getPaymentGateway, startCheckout } from "../api";
 import { formatWhen, money } from "../format";
 import { useToast } from "../toast";
 
@@ -18,7 +18,7 @@ export default function PayPage() {
       return;
     }
     canceledToast.current = true;
-    toast.error("Checkout was canceled. No charge was made.");
+    toast.error("Checkout was canceled. Stripe did not confirm a charge.");
     const next = new URLSearchParams(searchParams);
     next.delete("checkout");
     setSearchParams(next, { replace: true });
@@ -40,9 +40,13 @@ export default function PayPage() {
     event.preventDefault();
     setBusy(true);
     try {
+      const gateway = await getPaymentGateway();
+      if (gateway?.provider !== "stripe") {
+        throw new Error("Stripe is not connected on this server. No payment was recorded.");
+      }
       const session = await startCheckout(id);
-      if (!session?.url) {
-        throw new Error("Stripe did not return a checkout URL");
+      if (!session?.url || !session.url.startsWith("https://checkout.stripe.com/")) {
+        throw new Error("Stripe did not return a checkout URL. No payment was recorded.");
       }
       window.location.assign(session.url);
     } catch (err) {
@@ -67,11 +71,15 @@ export default function PayPage() {
       )}
       <form className="stack" onSubmit={onHostedCheckout}>
         <p className="hint">
+          Opening this page does not start a payment. Continue only asks Stripe for a Checkout URL;
+          Lotline stores a receipt after Stripe confirms the charge, not when you click the button.
+        </p>
+        <p className="hint">
           Card details are entered on Stripe. Lotline never sees the full card number.
           Test mode card: 4242 4242 4242 4242.
         </p>
         <button className="btn btn-gold" type="submit" disabled={busy}>
-          {busy ? "Redirecting to Stripe…" : "Continue to Stripe"}
+          {busy ? "Asking Stripe for checkout…" : "Continue to Stripe"}
         </button>
       </form>
     </main>

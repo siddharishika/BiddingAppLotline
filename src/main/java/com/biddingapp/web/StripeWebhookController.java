@@ -47,7 +47,13 @@ public class StripeWebhookController {
             return ResponseEntity.badRequest().build();
         }
 
+        if (fulfillment == null || fulfillment.getOutcome() == CheckoutFulfillment.Outcome.IGNORED) {
+            log.info("Stripe webhook did not confirm a payment");
+            return ResponseEntity.ok().build();
+        }
+
         try {
+            log.info("Applying Stripe webhook {} for session {}", fulfillment.getOutcome(), fulfillment.getSessionId());
             paymentService.fulfillFromGateway(fulfillment);
             return ResponseEntity.ok().build();
         } catch (RuntimeException ex) {

@@ -12,6 +12,8 @@ import com.stripe.net.RequestOptions;
 import com.stripe.net.Webhook;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.stripe.param.checkout.SessionRetrieveParams;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -21,6 +23,9 @@ public class StripeCheckoutGateway implements PaymentGateway {
 
     static final String META_AUCTION_ID = "auctionId";
     static final String META_PAYER_ID = "payerId";
+    private static final Logger log = LoggerFactory.getLogger(StripeCheckoutGateway.class);
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int READ_TIMEOUT_MS = 20_000;
 
     private final String webhookSecret;
     private final RequestOptions requestOptions;
@@ -31,7 +36,15 @@ public class StripeCheckoutGateway implements PaymentGateway {
             throw new IllegalStateException("stripe.secret-key is required when lotline.payments.provider=stripe");
         }
         this.webhookSecret = webhookSecret == null ? "" : webhookSecret.trim();
-        this.requestOptions = RequestOptions.builder().setApiKey(secretKey.trim()).build();
+        this.requestOptions = RequestOptions.builder()
+                .setApiKey(secretKey.trim())
+                .setConnectTimeout(CONNECT_TIMEOUT_MS)
+                .setReadTimeout(READ_TIMEOUT_MS)
+                .setMaxNetworkRetries(1)
+                .build();
+        if (this.webhookSecret.isBlank()) {
+            log.warn("stripe.webhook-secret is empty; Checkout Sessions will not be confirmed by webhook");
+        }
     }
 
     @Override
@@ -109,12 +122,15 @@ public class StripeCheckoutGateway implements PaymentGateway {
         }
 
         try {
+            log.info("Creating Stripe Checkout Session for auction {}", request.getAuctionId());
             Session session = Session.create(params.build(), requestOptions);
             if (session.getUrl() == null || session.getUrl().isBlank()) {
                 throw new PaymentGatewayException("Stripe did not return a checkout URL");
             }
+            log.info("Stripe acknowledged Checkout Session {} for auction {}", session.getId(), request.getAuctionId());
             return new CheckoutSessionResult(session.getId(), session.getUrl());
         } catch (StripeException ex) {
+            log.warn("Stripe Session.create failed for auction {}: {}", request.getAuctionId(), ex.getMessage());
             throw new PaymentGatewayException(userSafeStripeMessage(ex), ex);
         }
     }
@@ -125,8 +141,10 @@ public class StripeCheckoutGateway implements PaymentGateway {
             return CheckoutFulfillment.ignored();
         }
         try {
+            log.info("Retrieving Stripe Checkout Session {}", sessionId);
             return fromSession(retrieveExpanded(sessionId), null);
         } catch (StripeException ex) {
+            log.warn("Stripe Session.retrieve failed for {}: {}", sessionId, ex.getMessage());
             throw new PaymentGatewayException(userSafeStripeMessage(ex), ex);
         }
     }
@@ -150,10 +168,12 @@ public class StripeCheckoutGateway implements PaymentGateway {
         }
 
         String type = event.getType();
+        log.info("Stripe webhook received: {}", type);
         if (!"checkout.session.completed".equals(type)
                 && !"checkout.session.async_payment_succeeded".equals(type)
                 && !"checkout.session.expired".equals(type)
                 && !"checkout.session.async_payment_failed".equals(type)) {
+            log.info("Ignoring Stripe webhook type {}", type);
             return CheckoutFulfillment.ignored();
         }
 
@@ -174,10 +194,11 @@ public class StripeCheckoutGateway implements PaymentGateway {
             return;
         }
         try {
+            log.info("Expiring unused Stripe Checkout Session {}", sessionId);
             Session session = Session.retrieve(sessionId, requestOptions);
             session.expire(requestOptions);
-        } catch (StripeException ignored) {
-            // Already expired, completed, or unknown — fulfillment handles the rest.
+        } catch (StripeException ex) {
+            log.info("Could not expire Stripe session {}: {}", sessionId, ex.getMessage());
         }
     }
 
@@ -192,8 +213,17 @@ public class StripeCheckoutGateway implements PaymentGateway {
         Long auctionId = parseLong(metadata(session, META_AUCTION_ID));
         Long payerId = parseLong(metadata(session, META_PAYER_ID));
         if (auctionId == null || payerId == null || session.getId() == null) {
+            log.warn("Stripe session {} is missing Lotline metadata", session.getId());
             return CheckoutFulfillment.ignored();
         }
+
+        log.info(
+                "Stripe session {} status={} payment_status={} event={}",
+                session.getId(),
+                session.getStatus(),
+                session.getPaymentStatus(),
+                eventType
+        );
 
         boolean paid = "paid".equalsIgnoreCase(session.getPaymentStatus());
         boolean expired = "expired".equalsIgnoreCase(session.getStatus())
@@ -215,6 +245,7 @@ public class StripeCheckoutGateway implements PaymentGateway {
         if (failed) {
             return CheckoutFulfillment.failed(auctionId, payerId, session.getId(), "Payment failed at Stripe");
         }
+        log.info("Stripe has not confirmed a charge for session {} yet", session.getId());
         return CheckoutFulfillment.ignored();
     }
 

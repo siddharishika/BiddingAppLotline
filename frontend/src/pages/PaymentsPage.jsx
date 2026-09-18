@@ -10,6 +10,8 @@ export default function PaymentsPage() {
   const navigate = useNavigate();
   const completing = useRef(false);
   const [data, setData] = useState({ payments: [], wins: [] });
+  const returnParams = new URLSearchParams(location.search);
+  const returningFromStripe = returnParams.get("checkout") === "success" && Boolean(returnParams.get("session_id"));
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -20,8 +22,8 @@ export default function PaymentsPage() {
       }
       completing.current = true;
       completeCheckout(sessionId)
-        .then(() => toast.success("Payment authorized. Your receipt is in Payments."))
-        .catch((err) => toast.error(err.message || "Payment is still processing"))
+        .then(() => toast.success("Stripe confirmed the payment. Your receipt is in Payments."))
+        .catch((err) => toast.error(err.message || "Stripe has not confirmed this payment yet"))
         .finally(() => {
           navigate("/payments", { replace: true });
         });
@@ -48,13 +50,21 @@ export default function PaymentsPage() {
       .map((payment) => payment.auctionId)
   ), [data.payments]);
 
+  if (returningFromStripe) {
+    return (
+      <main className="wrap page-status">
+        <p className="muted">Confirming with Stripe… Lotline will only store a receipt after Stripe confirms the charge.</p>
+      </main>
+    );
+  }
+
   return (
     <main className="wrap section">
       <p className="eyebrow">Settlements</p>
       <h1>Payments</h1>
 
       <h2>Receipts</h2>
-      <p className="muted">Successful charges and failed attempts stored for your account.</p>
+      <p className="muted">Successful charges and failed attempts stored after Stripe confirms them.</p>
       {data.payments.length === 0 && <p>No charges yet.</p>}
       {data.payments.length > 0 && (
         <div className="data-scroll">
@@ -82,7 +92,7 @@ export default function PaymentsPage() {
                     : payment.status === "EXPIRED"
                       ? (payment.failureReason || "Checkout expired")
                       : payment.status === "PENDING"
-                        ? "Checkout started"
+                        ? "Stripe has not confirmed this checkout"
                         : <code>{payment.gatewayTransactionId || "—"}</code>}
                 </td>
                 <td data-label="Card">{payment.lastFour ? `•••• ${payment.lastFour}` : "—"}</td>
