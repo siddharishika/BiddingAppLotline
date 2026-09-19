@@ -139,8 +139,7 @@ a:hover { text-decoration: underline; }
 }
 .nav a:hover, .nav a.active { color: var(--ink); }
 
-.nav-auth-link { display: none; }
-.header-auth-narrow { display: none; }
+.nav .nav-auth-link { display: none; }
 
 .nav-toggle {
     display: none;
@@ -696,9 +695,8 @@ button.text-link:disabled { opacity: 0.55; cursor: not-allowed; }
 
     .nav-toggle { display: inline-flex; }
 
-    .header-auth-wide { display: none; }
-    .header-auth-narrow { display: inline-flex; }
-    .nav-auth-link {
+    .header-actions .header-auth { display: none; }
+    .nav .nav-auth-link {
         display: block;
         font-weight: 600;
     }

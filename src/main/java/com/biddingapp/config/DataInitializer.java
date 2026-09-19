@@ -220,7 +220,7 @@ public class DataInitializer {
                     "Brass reading lamp",
                     CatalogueCopy.LAMP,
                     "Antiques",
-                    "https://images.unsplash.com/photo-1507473885765-e6ed357f3443?auto=format&fit=crop&w=1400&q=80",
+                    CatalogueCopy.LAMP_IMAGE,
                     "220.00", "20.00", mara, opens, closes,
                     AuctionStatus.SCHEDULED, study);
             AuctionItem diaries = lot(

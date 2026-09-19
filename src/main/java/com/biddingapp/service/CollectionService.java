@@ -134,12 +134,18 @@ public class CollectionService {
     @Transactional
     public int refreshSeededCopy() {
         Map<String, String> lots = CatalogueCopy.lotsByTitle();
+        Map<String, String> images = CatalogueCopy.imagesByTitle();
         Map<String, String> collections = CatalogueCopy.collectionsByName();
         int updated = 0;
         for (AuctionItem lot : auctionItemRepository.findAll()) {
             String copy = lots.get(lot.getTitle());
             if (copy != null && !copy.equals(lot.getDescription())) {
                 lot.setDescription(copy);
+                updated++;
+            }
+            String image = images.get(lot.getTitle());
+            if (image != null && !image.equals(lot.getImageUrl())) {
+                lot.setImageUrl(image);
                 updated++;
             }
         }

@@ -34,9 +34,8 @@ export default function Layout() {
                 </>
               ) : (
                 <>
-                  <Link className="btn btn-ghost btn-compact header-auth-wide" to="/login" onClick={closeMenu}>Sign in</Link>
-                  <Link className="btn btn-gold btn-compact header-auth-wide" to="/register" onClick={closeMenu}>Create account</Link>
-                  <Link className="btn btn-gold btn-compact header-auth-narrow" to="/login" onClick={closeMenu}>Sign in</Link>
+                  <Link className="btn btn-ghost btn-compact header-auth" to="/login" onClick={closeMenu}>Sign in</Link>
+                  <Link className="btn btn-gold btn-compact header-auth" to="/register" onClick={closeMenu}>Create account</Link>
                 </>
               )}
               <button

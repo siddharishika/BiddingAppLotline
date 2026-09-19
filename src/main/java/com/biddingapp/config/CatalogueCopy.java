@@ -44,6 +44,9 @@ public final class CatalogueCopy {
     static final String LAMP = """
             A brass reading lamp with an adjustable arm, original switch, and a warm, even patina. The shade is later; the lamp itself is the sort meant for a desk rather than a drawing room. It still articulates smoothly and throws light where a reader needs it. From a quiet study, not from a lighting showroom.""";
 
+    static final String LAMP_IMAGE =
+            "https://images.unsplash.com/photo-1543198126-a8ad8e47fb22?auto=format&fit=crop&w=1400&q=80";
+
     static final String DIARIES = """
             Five small morocco diaries from the 1920s, gilt edges, most pages unused. They read as a librarian’s unused stock from a quiet house, not as a cache of secrets. Bindings are sound and the gilt has not been recut. Offered as objects of a study, blank enough to remain themselves.""";
 
@@ -92,5 +95,11 @@ public final class CatalogueCopy {
         copy.put("Under the porch light", PORCH_LIGHT);
         copy.put("Guest bedroom, not yet shown", GUEST_BEDROOM);
         return copy;
+    }
+
+    public static Map<String, String> imagesByTitle() {
+        Map<String, String> images = new LinkedHashMap<>();
+        images.put("Brass reading lamp", LAMP_IMAGE);
+        return images;
     }
 }
